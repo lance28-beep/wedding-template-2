@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { Play, Pause } from 'lucide-react';
+import { Play, Pause, Volume2, VolumeX } from 'lucide-react';
+import { toast } from 'sonner';
 
 const SpotifyIcon = () => (
   <svg
@@ -16,9 +17,11 @@ const SpotifyIcon = () => (
 export const AudioPlayer = () => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
-  const [hasScrolled, setHasScrolled] = useState(false);
+  const [volume, setVolume] = useState(0.5);
+  const [hasInteracted, setHasInteracted] = useState(false);
   const [isClient, setIsClient] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const volumeTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
 
   // Initialize client-side state
   useEffect(() => {
@@ -32,14 +35,15 @@ export const AudioPlayer = () => {
     // Create audio element
     audioRef.current = new Audio('/audio/[MV] BSS(부석순)(SEVENTEEN) - The Reasons of My Smiles(자꾸만 웃게 돼).mp3');
     audioRef.current.loop = true;
-    audioRef.current.volume = 0.5;
+    audioRef.current.volume = volume;
 
     // Handler for first user interaction
     const handleUserInteraction = () => {
-      if (!hasScrolled && audioRef.current) {
-        setHasScrolled(true);
+      if (!hasInteracted && audioRef.current) {
+        setHasInteracted(true);
         audioRef.current.play().catch(error => {
           console.error('Error playing audio:', error);
+          toast.error('Unable to play audio. Please try again.');
         });
         setIsPlaying(true);
         // Remove all listeners after first interaction
@@ -49,20 +53,37 @@ export const AudioPlayer = () => {
       }
     };
 
+    // Add event listeners for user interaction
     window.addEventListener('click', handleUserInteraction, { passive: true });
     window.addEventListener('keydown', handleUserInteraction, { passive: true });
     window.addEventListener('touchstart', handleUserInteraction, { passive: true });
 
+    // Add event listeners for audio state changes
+    const audio = audioRef.current;
+    audio.addEventListener('play', () => setIsPlaying(true));
+    audio.addEventListener('pause', () => setIsPlaying(false));
+    audio.addEventListener('volumechange', () => {
+      setIsMuted(audio.muted);
+      setVolume(audio.volume);
+    });
+
     return () => {
+      // Cleanup event listeners
       window.removeEventListener('click', handleUserInteraction);
       window.removeEventListener('keydown', handleUserInteraction);
       window.removeEventListener('touchstart', handleUserInteraction);
+      audio.removeEventListener('play', () => setIsPlaying(true));
+      audio.removeEventListener('pause', () => setIsPlaying(false));
+      audio.removeEventListener('volumechange', () => {
+        setIsMuted(audio.muted);
+        setVolume(audio.volume);
+      });
       if (audioRef.current) {
         audioRef.current.pause();
         audioRef.current = null;
       }
     };
-  }, [isClient, hasScrolled]);
+  }, [isClient, hasInteracted, volume]);
 
   const togglePlay = () => {
     if (!audioRef.current) return;
@@ -72,6 +93,7 @@ export const AudioPlayer = () => {
     } else {
       audioRef.current.play().catch(error => {
         console.error('Error playing audio:', error);
+        toast.error('Unable to play audio. Please try again.');
       });
     }
     setIsPlaying(!isPlaying);
@@ -84,22 +106,23 @@ export const AudioPlayer = () => {
     setIsMuted(!isMuted);
   };
 
-  // Method to pause audio (called by video component)
-  const pauseAudio = () => {
-    if (audioRef.current && isPlaying) {
-      audioRef.current.pause();
-      setIsPlaying(false);
+  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!audioRef.current) return;
+    
+    const newVolume = parseFloat(e.target.value);
+    audioRef.current.volume = newVolume;
+    setVolume(newVolume);
+    
+    // Show volume toast
+    if (volumeTimeoutRef.current) {
+      clearTimeout(volumeTimeoutRef.current);
     }
-  };
-
-  // Method to resume audio (called by video component)
-  const resumeAudio = () => {
-    if (audioRef.current && !isPlaying) {
-      audioRef.current.play().catch(error => {
-        console.error('Error playing audio:', error);
+    
+    volumeTimeoutRef.current = setTimeout(() => {
+      toast.info(`Volume: ${Math.round(newVolume * 100)}%`, {
+        duration: 1000,
       });
-      setIsPlaying(true);
-    }
+    }, 100);
   };
 
   // Don't render anything on the server
@@ -121,21 +144,25 @@ export const AudioPlayer = () => {
         </div>
       </div>
       <div className="flex items-center gap-2">
-        <button
-          onClick={toggleMute}
-          className="text-white/70 hover:text-white transition-colors"
-          aria-label={isMuted ? 'Unmute' : 'Mute'}
-        >
-          {isMuted ? (
-            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z" />
-            </svg>
-          ) : (
-            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z" />
-            </svg>
-          )}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={toggleMute}
+            className="text-white/70 hover:text-white transition-colors"
+            aria-label={isMuted ? 'Unmute' : 'Mute'}
+          >
+            {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+          </button>
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.01"
+            value={volume}
+            onChange={handleVolumeChange}
+            className="w-20 accent-rose-500"
+            aria-label="Volume control"
+          />
+        </div>
         <button
           onClick={togglePlay}
           className="bg-white text-black rounded-full p-2 hover:bg-gray-200 transition-colors"
